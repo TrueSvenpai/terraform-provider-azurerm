@@ -30,8 +30,10 @@ type SiteConfigLinuxWebAppSlot struct {
 	DefaultDocuments        []string                `tfschema:"default_documents"`
 	Http2Enabled            bool                    `tfschema:"http2_enabled"`
 	IpRestriction           []IpRestriction         `tfschema:"ip_restriction"`
+	IpAccessEnabled         bool                    `tfschema:"ip_access_enabled"`
 	ScmUseMainIpRestriction bool                    `tfschema:"scm_use_main_ip_restriction"`
 	ScmIpRestriction        []IpRestriction         `tfschema:"scm_ip_restriction"`
+	ScmIpAccessEnabled      bool                    `tfschema:"scm_ip_access_enabled"`
 	LoadBalancing           string                  `tfschema:"load_balancing_mode"`
 	LocalMysql              bool                    `tfschema:"local_mysql_enabled"`
 	ManagedPipelineMode     string                  `tfschema:"managed_pipeline_mode"`
@@ -126,10 +128,22 @@ func SiteConfigSchemaLinuxWebAppSlot() *pluginsdk.Schema {
 
 				"ip_restriction": IpRestrictionSchema(),
 
+				"ip_access_enabled": {
+					Type:     pluginsdk.TypeBool,
+					Optional: true,
+					Default:  true,
+				},
+
 				"scm_use_main_ip_restriction": {
 					Type:     pluginsdk.TypeBool,
 					Optional: true,
 					Default:  false,
+				},
+
+				"scm_ip_access_enabled": {
+					Type:     pluginsdk.TypeBool,
+					Optional: true,
+					Default:  true,
 				},
 
 				"scm_ip_restriction": IpRestrictionSchema(),
@@ -560,6 +574,8 @@ func (s *SiteConfigLinuxWebAppSlot) ExpandForCreate(appSettings map[string]strin
 	expanded.ScmMinTLSVersion = web.SupportedTLSVersions(s.ScmMinTlsVersion)
 	expanded.AutoHealEnabled = pointer.To(s.AutoHeal)
 	expanded.VnetRouteAllEnabled = pointer.To(s.VnetRouteAllEnabled)
+	expanded.ScmIPSecurityRestrictionsDefaultAction = web.DefaultActionAllow
+	expanded.IPSecurityRestrictionsDefaultAction = web.DefaultActionAllow
 
 	if s.ApiManagementConfigId != "" {
 		expanded.APIManagementConfig = &web.APIManagementConfig{
@@ -653,6 +669,14 @@ func (s *SiteConfigLinuxWebAppSlot) ExpandForCreate(appSettings map[string]strin
 		expanded.IPSecurityRestrictions = ipRestrictions
 	}
 
+	if !s.IpAccessEnabled {
+		expanded.IPSecurityRestrictionsDefaultAction = web.DefaultActionDeny
+	}
+
+	if !s.ScmIpAccessEnabled {
+		expanded.ScmIPSecurityRestrictionsDefaultAction = web.DefaultActionDeny
+	}
+
 	if len(s.ScmIpRestriction) != 0 {
 		ipRestrictions, err := ExpandIpRestrictions(s.ScmIpRestriction)
 		if err != nil {
@@ -693,6 +717,16 @@ func (s *SiteConfigLinuxWebAppSlot) ExpandForUpdate(metadata sdk.ResourceMetaDat
 	expanded.Use32BitWorkerProcess = pointer.To(s.Use32BitWorker)
 	expanded.WebSocketsEnabled = pointer.To(s.WebSockets)
 	expanded.VnetRouteAllEnabled = pointer.To(s.VnetRouteAllEnabled)
+	expanded.ScmIPSecurityRestrictionsDefaultAction = web.DefaultActionAllow
+	expanded.IPSecurityRestrictionsDefaultAction = web.DefaultActionAllow
+
+	if !s.IpAccessEnabled {
+		expanded.IPSecurityRestrictionsDefaultAction = web.DefaultActionDeny
+	}
+
+	if !s.ScmIpAccessEnabled {
+		expanded.ScmIPSecurityRestrictionsDefaultAction = web.DefaultActionDeny
+	}
 
 	if metadata.ResourceData.HasChange("site_config.0.api_management_api_id") {
 		expanded.APIManagementConfig = &web.APIManagementConfig{
@@ -851,6 +885,8 @@ func (s *SiteConfigLinuxWebAppSlot) Flatten(appSiteSlotConfig *web.SiteConfig) {
 	s.DetailedErrorLogging = pointer.From(appSiteSlotConfig.DetailedErrorLoggingEnabled)
 	s.Http2Enabled = pointer.From(appSiteSlotConfig.HTTP20Enabled)
 	s.IpRestriction = FlattenIpRestrictions(appSiteSlotConfig.IPSecurityRestrictions)
+	s.IpAccessEnabled = true
+	s.ScmIpAccessEnabled = true
 	s.ManagedPipelineMode = string(appSiteSlotConfig.ManagedPipelineMode)
 	s.ScmType = string(appSiteSlotConfig.ScmType)
 	s.FtpsState = string(appSiteSlotConfig.FtpsState)
@@ -868,6 +904,14 @@ func (s *SiteConfigLinuxWebAppSlot) Flatten(appSiteSlotConfig *web.SiteConfig) {
 	s.UseManagedIdentityACR = pointer.From(appSiteSlotConfig.AcrUseManagedIdentityCreds)
 	s.WebSockets = pointer.From(appSiteSlotConfig.WebSocketsEnabled)
 	s.VnetRouteAllEnabled = pointer.From(appSiteSlotConfig.VnetRouteAllEnabled)
+
+	if strings.EqualFold(string(appSiteSlotConfig.IPSecurityRestrictionsDefaultAction), string(web.DefaultActionDeny)) {
+		s.IpAccessEnabled = false
+	}
+
+	if strings.EqualFold(string(appSiteSlotConfig.ScmIPSecurityRestrictionsDefaultAction), string(web.DefaultActionDeny)) {
+		s.ScmIpAccessEnabled = false
+	}
 
 	if appSiteSlotConfig.APIManagementConfig != nil && appSiteSlotConfig.APIManagementConfig.ID != nil {
 		s.ApiManagementConfigId = *appSiteSlotConfig.APIManagementConfig.ID

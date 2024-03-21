@@ -29,8 +29,10 @@ type SiteConfigLinux struct {
 	DefaultDocuments        []string                `tfschema:"default_documents"`
 	Http2Enabled            bool                    `tfschema:"http2_enabled"`
 	IpRestriction           []IpRestriction         `tfschema:"ip_restriction"`
+	IpAccessEnabled         bool                    `tfschema:"ip_access_enabled"`
 	ScmUseMainIpRestriction bool                    `tfschema:"scm_use_main_ip_restriction"`
 	ScmIpRestriction        []IpRestriction         `tfschema:"scm_ip_restriction"`
+	ScmIpAccessEnabled      bool                    `tfschema:"scm_ip_access_enabled"`
 	LoadBalancing           string                  `tfschema:"load_balancing_mode"`
 	LocalMysql              bool                    `tfschema:"local_mysql_enabled"`
 	ManagedPipelineMode     string                  `tfschema:"managed_pipeline_mode"`
@@ -124,6 +126,12 @@ func SiteConfigSchemaLinux() *pluginsdk.Schema {
 
 				"ip_restriction": IpRestrictionSchema(),
 
+				"ip_access_enabled": {
+					Type:     pluginsdk.TypeBool,
+					Optional: true,
+					Default:  true,
+				},
+
 				"scm_use_main_ip_restriction": {
 					Type:     pluginsdk.TypeBool,
 					Optional: true,
@@ -131,6 +139,12 @@ func SiteConfigSchemaLinux() *pluginsdk.Schema {
 				},
 
 				"scm_ip_restriction": IpRestrictionSchema(),
+
+				"scm_ip_access_enabled": {
+					Type:     pluginsdk.TypeBool,
+					Optional: true,
+					Default:  true,
+				},
 
 				"local_mysql_enabled": {
 					Type:     pluginsdk.TypeBool,
@@ -331,11 +345,6 @@ func SiteConfigSchemaLinuxComputed() *pluginsdk.Schema {
 				},
 
 				"ip_restriction": IpRestrictionSchemaComputed(),
-
-				"scm_use_main_ip_restriction": {
-					Type:     pluginsdk.TypeBool,
-					Computed: true,
-				},
 
 				"scm_ip_restriction": IpRestrictionSchemaComputed(),
 
@@ -746,6 +755,8 @@ func (s *SiteConfigLinux) ExpandForCreate(appSettings map[string]string) (*web.S
 	expanded.ScmMinTLSVersion = web.SupportedTLSVersions(s.ScmMinTlsVersion)
 	expanded.AutoHealEnabled = pointer.To(s.AutoHeal)
 	expanded.VnetRouteAllEnabled = pointer.To(s.VnetRouteAllEnabled)
+	expanded.ScmIPSecurityRestrictionsDefaultAction = web.DefaultActionAllow
+	expanded.IPSecurityRestrictionsDefaultAction = web.DefaultActionAllow
 
 	if s.ApiManagementConfigId != "" {
 		expanded.APIManagementConfig = &web.APIManagementConfig{
@@ -833,6 +844,14 @@ func (s *SiteConfigLinux) ExpandForCreate(appSettings map[string]string) (*web.S
 		expanded.IPSecurityRestrictions = ipRestrictions
 	}
 
+	if !s.IpAccessEnabled {
+		expanded.IPSecurityRestrictionsDefaultAction = web.DefaultActionDeny
+	}
+
+	if !s.ScmIpAccessEnabled {
+		expanded.ScmIPSecurityRestrictionsDefaultAction = web.DefaultActionDeny
+	}
+
 	if len(s.ScmIpRestriction) != 0 {
 		ipRestrictions, err := ExpandIpRestrictions(s.ScmIpRestriction)
 		if err != nil {
@@ -877,6 +896,16 @@ func (s *SiteConfigLinux) ExpandForUpdate(metadata sdk.ResourceMetaData, existin
 	expanded.Use32BitWorkerProcess = pointer.To(s.Use32BitWorker)
 	expanded.WebSocketsEnabled = pointer.To(s.WebSockets)
 	expanded.VnetRouteAllEnabled = pointer.To(s.VnetRouteAllEnabled)
+	expanded.ScmIPSecurityRestrictionsDefaultAction = web.DefaultActionAllow
+	expanded.IPSecurityRestrictionsDefaultAction = web.DefaultActionAllow
+
+	if !s.IpAccessEnabled {
+		expanded.IPSecurityRestrictionsDefaultAction = web.DefaultActionDeny
+	}
+
+	if !s.ScmIpAccessEnabled {
+		expanded.ScmIPSecurityRestrictionsDefaultAction = web.DefaultActionDeny
+	}
 
 	if metadata.ResourceData.HasChange("site_config.0.api_management_api_id") {
 		expanded.APIManagementConfig = &web.APIManagementConfig{
@@ -1033,6 +1062,8 @@ func (s *SiteConfigLinux) Flatten(appSiteConfig *web.SiteConfig) {
 		s.DefaultDocuments = pointer.From(appSiteConfig.DefaultDocuments)
 		s.Http2Enabled = pointer.From(appSiteConfig.HTTP20Enabled)
 		s.IpRestriction = FlattenIpRestrictions(appSiteConfig.IPSecurityRestrictions)
+		s.IpAccessEnabled = true
+		s.ScmIpAccessEnabled = true
 		s.ManagedPipelineMode = string(appSiteConfig.ManagedPipelineMode)
 		s.ScmType = string(appSiteConfig.ScmType)
 		s.FtpsState = string(appSiteConfig.FtpsState)
@@ -1051,6 +1082,14 @@ func (s *SiteConfigLinux) Flatten(appSiteConfig *web.SiteConfig) {
 		s.WebSockets = pointer.From(appSiteConfig.WebSocketsEnabled)
 		s.VnetRouteAllEnabled = pointer.From(appSiteConfig.VnetRouteAllEnabled)
 		s.Cors = FlattenCorsSettings(appSiteConfig.Cors)
+
+		if strings.EqualFold(string(appSiteConfig.IPSecurityRestrictionsDefaultAction), string(web.DefaultActionDeny)) {
+			s.IpAccessEnabled = false
+		}
+
+		if strings.EqualFold(string(appSiteConfig.ScmIPSecurityRestrictionsDefaultAction), string(web.DefaultActionDeny)) {
+			s.ScmIpAccessEnabled = false
+		}
 
 		if appSiteConfig.APIManagementConfig != nil {
 			s.ApiManagementConfigId = pointer.From(appSiteConfig.APIManagementConfig.ID)
